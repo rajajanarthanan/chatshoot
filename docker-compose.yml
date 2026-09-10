@@ -1,0 +1,135 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: chatshoot
+      POSTGRES_PASSWORD: chatshoot
+      POSTGRES_DB: chatshoot
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatshoot -d chatshoot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - "2980:3000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://chatshoot:chatshoot@postgres:5432/chatshoot
+      REDIS_URL: redis://redis:6379
+      MEDIA_ROOT: /media
+      NEXT_PUBLIC_APP_URL: http://localhost:2980
+    volumes:
+      - ./media:/media
+      - ./apps/web:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker-remotion:
+    build:
+      context: .
+      dockerfile: workers/remotion/Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://chatshoot:chatshoot@postgres:5432/chatshoot
+      REDIS_URL: redis://redis:6379
+      MEDIA_ROOT: /media
+    volumes:
+      - ./media:/media
+      - ./workers/remotion:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker-blender:
+    build:
+      context: .
+      dockerfile: workers/blender/Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://chatshoot:chatshoot@postgres:5432/chatshoot
+      REDIS_URL: redis://redis:6379
+      MEDIA_ROOT: /media
+      BLENDER_USE_GPU: "0"
+    volumes:
+      - ./media:/media
+      - blender-cache:/cache
+      - ./workers/blender:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Uncomment when NVIDIA GPU + nvidia-container-toolkit available:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  worker-ingest:
+    build:
+      context: .
+      dockerfile: workers/ingest/Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://chatshoot:chatshoot@postgres:5432/chatshoot
+      REDIS_URL: redis://redis:6379
+      MEDIA_ROOT: /media
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AZURE_SUBSCRIPTION_ID: ${AZURE_SUBSCRIPTION_ID:-}
+      AZURE_RESOURCE_GROUP: ${AZURE_RESOURCE_GROUP:-}
+      AZURE_VIDEO_INDEXER_ACCOUNT_NAME: ${AZURE_VIDEO_INDEXER_ACCOUNT_NAME:-}
+      AZURE_VIDEO_INDEXER_ACCOUNT_ID: ${AZURE_VIDEO_INDEXER_ACCOUNT_ID:-}
+      AZURE_VIDEO_INDEXER_LOCATION: ${AZURE_VIDEO_INDEXER_LOCATION:-eastus}
+      AZURE_VIDEO_INDEXER_SUBSCRIPTION_KEY: ${AZURE_VIDEO_INDEXER_SUBSCRIPTION_KEY:-}
+      AZURE_CLI_PATH: ${AZURE_CLI_PATH:-}
+      FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
+      BRIGHTDATA_API_KEY: ${BRIGHTDATA_API_KEY:-}
+      BRIGHTDATA_SERP_ZONE: ${BRIGHTDATA_SERP_ZONE:-}
+    volumes:
+      - ./media:/media
+      - ./workers/ingest:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  blender-cache:

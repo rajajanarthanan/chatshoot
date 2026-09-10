@@ -1,0 +1,13 @@
+{
+  "name": "chatshoot-worker-ingest",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "bullmq": "^5.34.0",
+    "ioredis": "^5.4.2",
+    "pg": "^8.13.1"
+  }
+}

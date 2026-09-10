@@ -1,0 +1,13 @@
+{
+  "name": "chatshoot",
+  "private": true,
+  "scripts": {
+    "dev:infra": "docker compose up -d postgres redis",
+    "dev:web": "npm --prefix apps/web run dev",
+    "dev:workers": "npm --prefix workers/remotion start & npm --prefix workers/blender start & npm --prefix workers/ingest start",
+    "migrate": "npm --prefix apps/web run migrate",
+    "test:regression": "bash scripts/regression.sh",
+    "compose:up": "docker compose up --build",
+    "compose:down": "docker compose down"
+  }
+}
