@@ -351,8 +351,156 @@ async function crawl(payload) {
   return { path: rel, provider: "mock" };
 }
 
+/** Poly Haven CC0 ingest — https://api.polyhaven.com */
+async function polyhavenFetch(payload) {
+  const type = payload.type || "hdris"; // hdris | textures | models
+  const resolution = payload.resolution || "1k";
+  let assetId = payload.id;
+
+  if (!assetId && payload.query) {
+    const listRes = await fetch(`https://api.polyhaven.com/assets?t=${encodeURIComponent(type)}`);
+    const list = await listRes.json();
+    const q = String(payload.query).toLowerCase();
+    const match = Object.entries(list || {}).find(([id, meta]) => {
+      const name = String(id).toLowerCase();
+      const tags = Array.isArray(meta?.tags) ? meta.tags.join(" ").toLowerCase() : "";
+      const cats = Array.isArray(meta?.categories) ? meta.categories.join(" ").toLowerCase() : "";
+      return name.includes(q) || tags.includes(q) || cats.includes(q);
+    });
+    assetId = match?.[0] || Object.keys(list || {})[0];
+  }
+  if (!assetId) throw new Error("polyhaven: no asset id or query match");
+
+  const infoRes = await fetch(`https://api.polyhaven.com/info/${encodeURIComponent(assetId)}`);
+  const info = await infoRes.json().catch(() => ({}));
+  const filesRes = await fetch(`https://api.polyhaven.com/files/${encodeURIComponent(assetId)}`);
+  const files = await filesRes.json();
+
+  let downloadUrl = null;
+  let ext = "bin";
+  let category = "still";
+
+  if (type === "hdris" || files.hdri) {
+    category = "hdri";
+    const hdri = files.hdri || files;
+    const resNode = hdri[resolution] || hdri["1k"] || hdri["2k"] || Object.values(hdri)[0];
+    const fmt = resNode?.hdr || resNode?.exr || resNode?.jpg || resNode;
+    downloadUrl = fmt?.url || null;
+    ext = downloadUrl?.match(/\.(\w+)(?:\?|$)/)?.[1] || "hdr";
+  } else if (type === "textures" || files.Diffuse) {
+    category = "texture";
+    const diff = files.Diffuse || files.diffuse || files.Arm_Color || Object.values(files)[0];
+    const resNode = diff?.[resolution] || diff?.["1k"] || Object.values(diff || {})[0];
+    const fmt = resNode?.jpg || resNode?.png || resNode;
+    downloadUrl = fmt?.url || null;
+    ext = downloadUrl?.match(/\.(\w+)(?:\?|$)/)?.[1] || "jpg";
+  } else if (type === "models" || files.gltf || files.blend) {
+    category = "model";
+    const gltf = files.gltf?.[resolution] || files.gltf?.["1k"] || files.gltf;
+    downloadUrl = gltf?.gltf?.url || gltf?.url || files.blend?.url || null;
+    ext = downloadUrl?.includes(".glb") ? "glb" : downloadUrl?.includes(".gltf") ? "gltf" : "blend";
+  }
+
+  await mkdir(join(MEDIA_ROOT, "library", "polyhaven"), { recursive: true });
+  const rel = `library/polyhaven/${assetId}.${ext}`;
+  const abs = join(MEDIA_ROOT, rel);
+
+  if (downloadUrl) {
+    const bin = await fetch(downloadUrl);
+    if (!bin.ok) throw new Error(`polyhaven download ${bin.status}`);
+    const buf = Buffer.from(await bin.arrayBuffer());
+    await writeFile(abs, buf);
+  } else {
+    // Offline / API shape miss — stub marker so pipeline stays testable
+    await writeFile(
+      abs + ".json",
+      JSON.stringify({ mock: true, assetId, type, info, filesKeys: Object.keys(files || {}) }, null, 2)
+    );
+    return {
+      path: rel + ".json",
+      filename: `${assetId}.json`,
+      category,
+      assetId,
+      info,
+      mock: true,
+    };
+  }
+
+  return {
+    path: rel,
+    filename: `${assetId}.${ext}`,
+    category,
+    assetId,
+    info,
+    mock: false,
+  };
+}
+
 async function handle(job) {
   const { jobId, projectId, payload = {}, kind } = job.data;
+
+  if (kind === "polyhaven_fetch") {
+    try {
+      const result = await polyhavenFetch(payload);
+      const notes =
+        result.info?.name ||
+        result.info?.description ||
+        `Poly Haven ${result.assetId} (${result.category})`;
+      const tags = Array.isArray(result.info?.tags) ? result.info.tags : [];
+      const meta = {
+        source: "polyhaven",
+        license: "CC0",
+        category: result.category,
+        polyhavenId: result.assetId,
+        tags,
+        physical: result.info?.description || null,
+        usableAs: result.category === "hdri" ? ["hdri_world", "backdrop"] : result.category === "model" ? ["env_prop"] : ["floor", "backdrop"],
+        mock: result.mock || false,
+      };
+      const insert = await pool.query(
+        `INSERT INTO assets (kind, filename, path, notes, caption, primary_project_id, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        [
+          result.category === "model" ? "doc" : result.category === "hdri" ? "image" : "image",
+          result.filename,
+          result.path,
+          typeof notes === "string" ? notes.slice(0, 500) : String(result.assetId),
+          `Poly Haven CC0 · ${result.assetId}`,
+          projectId || null,
+          JSON.stringify(meta),
+        ]
+      );
+      const newId = insert.rows[0]?.id;
+      const embedContent = [
+        `Poly Haven CC0 · ${result.assetId}`,
+        typeof notes === "string" ? notes : "",
+        tags.join(" "),
+        result.category,
+        "polyhaven",
+      ].join("\n");
+      const embedding = await embedText(embedContent);
+      if (embedding && newId) {
+        const vec = `[${embedding.join(",")}]`;
+        await pool.query(
+          `INSERT INTO asset_embeddings (asset_id, content, embedding) VALUES ($1, $2, $3::vector)`,
+          [newId, embedContent, vec]
+        );
+      }
+      await callback({
+        jobId,
+        status: "completed",
+        result: { assetId: newId, ...result, metadata: meta },
+        lastChangeSummary: `Poly Haven import ${result.assetId}`,
+      });
+    } catch (e) {
+      await callback({
+        jobId,
+        status: "failed",
+        error: e.message || String(e),
+      });
+    }
+    return;
+  }
 
   if (kind === "crawl") {
     const result = await crawl(payload);

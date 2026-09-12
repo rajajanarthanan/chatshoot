@@ -45,15 +45,17 @@ Deferred multi-tenant ideas live under [`saas-future/`](./saas-future/).
 | Plate source in live preview (Cycles vs fallback) | **Done** |
 | Timeline bake-on-approve (`reexport`) | **Done** |
 | Regression: plate source + timeline + bake | **Done** | `scripts/regression.sh` + `POST /api/plans` `revise_timeline` |
+| **G** CapCut multi-cut timeline (schema → player → UI) | **Done** | v2 tracks, clip ops, freeform player/export, project clip strip |
+| **H** Asset library + Poly Haven seed | **Done** | metadata keys, filters, vector search, `polyhaven_fetch` |
+| **I** Environment assemble + reusable envs | **Done** | env CRUD, `assemble.py`, plate→V1 clip |
+| **J** Persona packs + GenFill catalog | **Done** | persona CRUD, multi-model catalog, edit→i2v pipeline |
 
 ### Still open / partial
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Agent-mutable beat-by-beat timeline | **Done** | `revise_timeline` → inline `timeline` step; VerticalShort + export honor beats |
-| CapCut-scale multi-cut NLE | Not built | Out of v1; beat strip + kit only |
-| GenFill kit fusion polish | **Done** | No longer overwrites titles; mock/API timeouts protected |
-| Hand-authored `.blend` showroom assets | Partial | Procedural Cycles kits ship; craft `.blend` files still optional for Tier C polish |
+| CapCut-scale multi-cut NLE | **Done** (Phase G) | Freeform V1 + A1/A2; not a full CapCut chrome clone |
+| Hand-authored `.blend` showroom assets | Partial | Procedural + assemble from lib; craft `.blend` optional |
 | Optional spoken agent replies | Not built | Mic STT for operator is enough for now |
 
 ---
@@ -250,7 +252,22 @@ ElevenLabs/Sarvam (or stub) VO; chat mic STT; music bed.
 
 1. **Hand-authored `.blend` kits** (optional) — drop real showroom/cafe `.blend` files for higher Tier C quality.
 2. **Shop/reel second kit** if client work needs non-SaaS layouts.
-3. **Operator UX** — show bake vs preview-only on timeline cost dialog.
+3. **Operator UX** — richer env/persona pickers on the project page.
+
+---
+
+## Phases G–J (CapCut → Assets → Envs → GenFill) — Done
+
+Serial spine after the templated desk:
+
+| Phase | Goal | Exit |
+|-------|------|------|
+| **G** | Multi-cut `timeline_json` v2; clip ops; player + export; project UI | Client footage multi-cut without 4-beat kit |
+| **H** | Searchable library + Poly Haven CC0 ingest + vector hits | Agent retrieves structured asset facts |
+| **I** | Env CRUD + Blender `assemble.py` → plate as V1 clip | Reusable named environments |
+| **J** | Persona packs + image_edit→i2v GenFill → timeline clip | Escape hatch; CapCut+plates remain primary |
+
+Locked: timeline JSON is source of truth; envs = retrieve+assemble; personas = GenFill (no 3D rigs); likeness = operator-owned.
 
 ---
 

@@ -218,6 +218,51 @@ assert pp.get('exportUrl'), 'expected export after bake'
 print('bake_ok', broll['durSec'], 'export', bool(pp.get('exportUrl')))
 "
 
+echo "== capcut clip ops =="
+CLIP_BODY=$(python3 - <<PY
+import json, urllib.request
+part=json.load(urllib.request.urlopen("$BASE/api/parts/$PART"))
+tl=part.get("timelineJson") or {}
+v1=next((t for t in (tl.get("tracks") or []) if t.get("id")=="V1" or t.get("kind")=="video"), None)
+clips=(v1 or {}).get("clips") or []
+c=next((x for x in clips if x.get("role")=="broll"), clips[0] if clips else None)
+assert c, "expected V1 clips"
+at=float(c["fromSec"])+float(c["durSec"])/2
+print(json.dumps({
+  "action":"revise_timeline",
+  "projectId":"$PID",
+  "partId":"$PART",
+  "note":"reg split clip",
+  "clipOps":[{"op":"split","clipId":c["id"],"atSec":at}],
+  "_before":len(clips),
+}))
+PY
+)
+BEFORE_N=$(echo "$CLIP_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).pop('_before'))")
+TL3=$(curl -sf -X POST "$BASE/api/plans" -H 'Content-Type: application/json' -d "$(echo "$CLIP_BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); d.pop('_before',None); print(json.dumps(d))")")
+TL3_PLAN=$(echo "$TL3" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('planId'); print(d['planId'])")
+echo "capcut_plan=$TL3_PLAN before=$BEFORE_N"
+curl -sf -X POST "$BASE/api/plans" -H 'Content-Type: application/json' -d "{\"action\":\"approve\",\"planId\":\"$TL3_PLAN\"}" >/dev/null
+sleep 1
+curl -sf "$BASE/api/parts/$PART" | python3 -c "
+import sys,json
+p=json.load(sys.stdin)
+tl=p.get('timelineJson') or {}
+assert tl.get('version')==2, tl
+v1=next((t for t in (tl.get('tracks') or []) if t.get('id')=='V1' or t.get('kind')=='video'), None)
+n=len((v1 or {}).get('clips') or [])
+assert n > int('$BEFORE_N'), (n, '$BEFORE_N')
+print('capcut_split_ok', 'clips', n, 'version', tl.get('version'))
+"
+
+echo "== environments + personas api =="
+ENV=$(curl -sf -X POST "$BASE/api/environments" -H 'Content-Type: application/json' -d '{"name":"Reg Sofa Set","description":"warm HDRI void","blenderTemplate":"assemble","assemble":true,"assetIds":[]}')
+echo "$ENV" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('id'); print('env_ok', d['name'])"
+PER=$(curl -sf -X POST "$BASE/api/personas" -H 'Content-Type: application/json' -d '{"name":"Reg Dogfood","description":"test persona","refAssetIds":[],"notes":"operator-owned likeness"}')
+echo "$PER" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('id'); print('persona_ok', d['name'])"
+curl -sf "$BASE/api/environments" | python3 -c "import sys,json; d=json.load(sys.stdin); assert isinstance(d,list) and len(d)>=1; print('envs', len(d))"
+curl -sf "$BASE/api/personas" | python3 -c "import sys,json; d=json.load(sys.stdin); assert isinstance(d,list) and len(d)>=1; print('personas', len(d))"
+
 echo "== plans progress =="
 curl -sf "$BASE/api/plans?projectId=$PID" > /tmp/cs-reg-plans.json
 python3 - <<'PY'

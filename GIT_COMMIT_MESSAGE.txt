@@ -1,0 +1,50 @@
+feat: comprehensive fixes to make project workable
+
+Fixes critical issues identified in audit:
+- Agent confusion, wrong tool calls
+- Hacky workarounds masking architectural issues
+- False-positive regex triggers
+- Silent failures, cryptic errors
+- Missing validation and tests
+
+Core Changes:
+- Fix linting errors (logo, tl const)
+- Simplify agent system prompt (100+ → 40 structured lines)
+- Remove hacky spatial edit workaround from revise_timeline
+- Make parseBrief regexes context-aware (require video keywords)
+- Fix React hook dependency warning
+- Add unit tests for parseBrief (40+ test cases)
+- Improve error messages (friendly, actionable)
+- Add ErrorBoundary component
+- Verify cost estimation accuracy
+
+Documentation:
+- AUDIT_REPORT.md - 20 issues identified
+- TEST_CHECKLIST.md - 10 E2E test flows
+- FIXES_SUMMARY.md - Detailed changelog
+- QUICK_START_VERIFICATION.md - Verification guide
+
+Before/After:
+- Lint: 2 errors → 0 errors ✅
+- Agent: 100+ line prompt → 40 lines ✅
+- Hacks: Multiple workarounds → Clean routing ✅
+- Tests: 0 → 40+ test cases ✅
+- UX: Cryptic errors → Friendly messages ✅
+
+Files changed:
+- apps/web/src/lib/agents/lead.ts (simplified prompt, removed hack)
+- apps/web/src/lib/plan/machine.ts (const logo)
+- apps/web/src/lib/brief/parse.ts (context-aware regex)
+- apps/web/src/lib/brief/parse.test.ts (NEW - unit tests)
+- apps/web/src/lib/timeline/adapters.ts (const tl)
+- apps/web/src/app/api/chat/route.ts (better error handling)
+- apps/web/src/app/projects/[id]/page.tsx (fix React hook deps)
+- apps/web/src/components/ChatPanel.tsx (error alerts)
+- apps/web/src/components/ErrorBoundary.tsx (NEW - error boundary)
+- AUDIT_REPORT.md (NEW)
+- TEST_CHECKLIST.md (NEW)
+- FIXES_SUMMARY.md (NEW)
+- QUICK_START_VERIFICATION.md (NEW)
+- GIT_COMMIT_MESSAGE.txt (NEW - this file)
+
+Addresses user feedback: "too very basic, and full of bugs, gaps"

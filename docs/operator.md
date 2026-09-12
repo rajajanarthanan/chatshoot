@@ -42,6 +42,37 @@ VO: Meet AgentiqMinds. Automate workflows in one place — video, posts, and you
 
 Approve when the cost dialog appears (`approve` / `ok` in chat also works).
 
+## Timeline (CapCut spine)
+
+Kit beats still mirror as `logo` → `product` → `broll` → `cta`. The source of truth is **`timeline_json` v2** (`tracks.V1` + `A1`/`A2`).
+
+Ask chat for timings or freeform cuts:
+
+```
+Make the logo beat 1.5s and b-roll 18s
+Split the b-roll into three cuts
+```
+
+On the project page: click a **V1 clip** → Split / Delete / Trim. Approve ($0) unless you ask to bake/export.
+
+API: `POST /api/plans` with `action:"revise_timeline"`, `patches` and/or `clipOps` (`split|trim|reorder|delete|insert|volume`).
+
+## Asset library + Poly Haven
+
+Gallery filters: category (`hdri|texture|model|…`), source (`upload|polyhaven|crawl`), search. Enrich **notes** / `metadata.physical` (e.g. “oak desk 1.2m”).
+
+Import CC0: Gallery → **Import Poly Haven**, or agent tool `import_polyhaven`. Files land under `media/library/polyhaven/`.
+
+## Environments (assemble)
+
+`GET/POST /api/environments` — bind `assetIds` (HDRI, props). Brief keywords: **sofa**, **HDRI**, **assemble**, **environment** → Blender `assemble.py` → plate clip on V1. Or reuse a named env via `environmentId` on the plan. **Save as environment** via agent `save_environment`.
+
+Quality = quality of library assets + lighting (not prompt→photoreal).
+
+## Personas + GenFill
+
+`GET/POST /api/personas` — `refAssetIds`, `voiceId`, notes. Agent: `save_persona` / `list_personas`. Brief with **persona** / **genfill** runs image-edit → i2v pipeline (catalog-clamped ≤5s) and inserts a timeline clip when media returns. Likeness/policy is operator-owned.
+
 ## Showroom / Blender plate
 
 Include **showroom**, **cafe**, **3d**, or **blender** in the brief:
@@ -50,26 +81,12 @@ Include **showroom**, **cafe**, **3d**, or **blender** in the brief:
 Showroom blender plate into the SaaS kit. Keep existing titles.
 ```
 
-Blender runs first; Remotion (and TTS if any) wait until the plate is written, then compose with `plateUrl` under `media/plates/`. With Blender on PATH you get a **Cycles PNG** (~showroom/cafe procedural kit); otherwise an SVG fallback. Titles/CTA are not wiped by the blender callback.
-
-## Timeline beats
-
-Kit beats: `logo` → `product` → `broll` → `cta`. Ask chat to change timings only:
-
-```
-Make the logo beat 1.5s and b-roll 18s
-```
-
-Approve ($0) — preview + beat strip update immediately. Next Remotion export bakes the new timings into MP4.
-
-Say **export** / **bake** / **render mp4** in the same request to also enqueue a remotion bake on approve (small estimate).
-
-API (for scripts): `POST /api/plans` with `{ "action":"revise_timeline", "projectId", "partId", "patches":[{"id":"logo","durSec":1.2}], "reexport": false }`.
+Blender runs first; Remotion (and TTS if any) wait until the plate is written, then compose with `plateUrl` under `media/plates/`. With Blender on PATH you get a **Cycles PNG**; otherwise an SVG fallback. Titles/CTA are not wiped.
 
 ## Export & reverse
 
 - **Export MP4** on the project page (or plan with export on).
-- **Reverse last step** restores the previous preview snapshot for that part.
+- **Reverse last step** restores the previous preview snapshot for that part (includes `timelineJson`).
 
 ## Smoke
 

@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
-import { mkdir } from "fs/promises";
+import { mkdir, writeFile } from "fs/promises";
+import { existsSync } from "fs";
 import { dirname, join } from "path";
 
 function run(cmd, args, opts = {}) {
@@ -544,5 +545,161 @@ export async function exportKitMp4(opts) {
     hasAudio: Boolean(audioAbs || bedAbs),
     musicRel,
     captionCount: capLines.length,
+  };
+}
+
+/**
+ * CapCut-style export: concat V1 clips by order (trim via sourceIn/dur).
+ * Falls back to exportKitMp4 when all clips have kit roles and kitAssets provided.
+ */
+export async function exportTimelineMp4(opts) {
+  const {
+    mediaRoot,
+    jobId,
+    clips = [],
+    audioAbs = null,
+    musicAbs = null,
+    durationSec = 30,
+    kitAssets = null,
+    titleText,
+    subtitle,
+    ctaText,
+    brandName,
+    captions = [],
+  } = opts;
+
+  const roles = ["logo", "product", "broll", "cta"];
+  const allKit =
+    clips.length >= 3 &&
+    clips.every((c) => c.role && roles.includes(c.role)) &&
+    kitAssets;
+
+  if (allKit) {
+    const beatMap = {};
+    for (const c of clips) beatMap[c.role] = c.durSec;
+    return exportKitMp4({
+      mediaRoot,
+      jobId,
+      titleText,
+      subtitle,
+      ctaText,
+      brandName,
+      logoAbs: kitAssets.logoAbs,
+      productAbs: kitAssets.productAbs,
+      brollAbs: kitAssets.brollAbs,
+      audioAbs,
+      musicAbs,
+      captions,
+      durationSec,
+      music: Boolean(musicAbs || audioAbs),
+      beats: beatMap,
+    });
+  }
+
+  await mkdir(join(mediaRoot, "renders"), { recursive: true });
+  await mkdir(join(mediaRoot, "tmp"), { recursive: true });
+  const w = 1080;
+  const h = 1920;
+  const segs = [];
+  for (let i = 0; i < clips.length; i++) {
+    const c = clips[i];
+    const abs = c.absPath;
+    const dur = Math.max(0.2, Number(c.durSec) || 3);
+    const out = join(mediaRoot, "tmp", `${jobId}-seg-${i}.mp4`);
+    if (abs && existsSync(abs)) {
+      const args = ["-y"];
+      if (c.sourceInSec != null) args.push("-ss", String(c.sourceInSec));
+      args.push("-i", abs, "-t", String(dur));
+      const isImg = /\.(png|jpe?g|webp|svg)$/i.test(abs);
+      if (isImg) {
+        args.splice(1, 0, "-loop", "1");
+        args.push(
+          "-vf",
+          `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}`,
+          "-c:v",
+          "libx264",
+          "-pix_fmt",
+          "yuv420p",
+          "-an",
+          out
+        );
+      } else {
+        args.push(
+          "-vf",
+          `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}`,
+          "-c:v",
+          "libx264",
+          "-pix_fmt",
+          "yuv420p",
+          "-an",
+          out
+        );
+      }
+      await run("ffmpeg", args);
+    } else {
+      await run("ffmpeg", [
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        `color=c=0x0b1220:s=${w}x${h}:d=${dur}`,
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-an",
+        out,
+      ]);
+    }
+    segs.push(out);
+  }
+
+  if (!segs.length) {
+    throw new Error("exportTimelineMp4: no clips");
+  }
+
+  const listPath = join(mediaRoot, "tmp", `${jobId}-tl.txt`);
+  await writeFile(listPath, segs.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join("\n"));
+  const videoAbs = join(mediaRoot, "tmp", `${jobId}-tl-video.mp4`);
+  await run("ffmpeg", ["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", videoAbs]);
+
+  const totalDur = clips.reduce((s, c) => s + Math.max(0.2, Number(c.durSec) || 3), 0);
+  const outAbs = join(mediaRoot, "renders", `${jobId}-export.mp4`);
+  if (audioAbs || musicAbs) {
+    const inputs = ["-y", "-i", videoAbs];
+    if (audioAbs) inputs.push("-i", audioAbs);
+    if (musicAbs) inputs.push("-i", musicAbs);
+    // simple: prefer VO if present else music
+    const aIdx = audioAbs ? 1 : musicAbs ? 1 : null;
+    if (aIdx != null) {
+      await run("ffmpeg", [
+        ...inputs,
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-map",
+        "0:v:0",
+        "-map",
+        `${aIdx}:a:0?`,
+        "-t",
+        String(totalDur),
+        "-shortest",
+        "-movflags",
+        "+faststart",
+        outAbs,
+      ]);
+    } else {
+      await run("ffmpeg", ["-y", "-i", videoAbs, "-c", "copy", "-movflags", "+faststart", outAbs]);
+    }
+  } else {
+    await run("ffmpeg", ["-y", "-i", videoAbs, "-c", "copy", "-movflags", "+faststart", outAbs]);
+  }
+
+  return {
+    outputRel: `renders/${jobId}-export.mp4`,
+    outputAbs: outAbs,
+    durationSec: totalDur,
+    hasAudio: Boolean(audioAbs || musicAbs),
   };
 }
